@@ -17,12 +17,14 @@ class CanvasManager:
 
     def submit_grade_and_comment(self, user_id, comment_text):
         try:
-            submission = self.assignment.get_submission(user_id)
+            submission = self.assignment.get_submission(user_id, include=["submission_history"])
+            latest_submission = self.get_latest_submission(submission.submission_history)
             submission_edit_data = {
                 "posted_grade": "complete"
             }
             comment_edit_data = {
                 "text_comment": comment_text,
+                "attempt": latest_submission.get("attempt")
             }
 
             submission.edit(submission=submission_edit_data, comment=comment_edit_data)
