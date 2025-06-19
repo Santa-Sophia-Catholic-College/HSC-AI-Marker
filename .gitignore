@@ -4,3 +4,4 @@ downloads
 __pycache__
 *.json
 run.sh
+test.py

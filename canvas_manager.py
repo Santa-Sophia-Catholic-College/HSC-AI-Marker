@@ -10,6 +10,10 @@ class CanvasManager:
 
     def get_submissions(self):
         return self.assignment.get_submissions(include=["submission_history"])
+    
+    def get_user_profile(self, user_id):
+        user = self.canvas.get_user(user_id).get_profile()
+        return user if user else None
 
     @staticmethod
     def get_latest_submission(history):

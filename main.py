@@ -60,9 +60,14 @@ def main():
                 comment_text=feedback["comment"]
             )
             
+            user_profile = canvas_mgr.get_user_profile(user_id)
+            sis_user_id = user_profile.get("sis_user_id", "Unknown")
+            name = user_profile.get("name", "Unknown")
+
             worksheet.append_row([
                 datetime.datetime.now().isoformat(),
-                user_id,
+                sis_user_id,
+                name,
                 feedback["subject"],
                 feedback["response_type"],
                 feedback["question"],
