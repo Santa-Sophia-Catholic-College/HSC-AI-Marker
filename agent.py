@@ -9,7 +9,8 @@ Output your response in JSON format with the following structure:
     "subject": "[Subject Name]",
     "question": "[The question being answered]",
     "response_type": "[Short Response or Long Response]",
-    "feedback_html": "[HTML formatted feedback]"
+    "feedback_html": "[HTML formatted feedback]",
+    "teacher_email": "[Teacher's email address]",
 }
 
 Do not enclose the JSON in any code blocks or markdown formatting.

@@ -2,44 +2,39 @@ import os
 from agents import Runner
 from agent import short_response_agent, long_response_agent
 import json
+from enum import Enum
+
+class UnknownResponseTypeError(Exception):
+    """Custom exception for unknown response types."""
+    pass
+
+class ResponseTypes(Enum):
+    LONG_RESPONSE = "long_response"
+    SHORT_RESPONSE = "short_response"
+
 class FeedbackGenerator:
-    def __init__(self, tracking):
-        self.tracking = tracking
+    def __init__(self):
+        pass
+    
+    def detect_response_type(self, content):
+        content = content.lower()
+        if "long response" in content:
+            return ResponseTypes.LONG_RESPONSE
+        elif "short response" in content:
+            return ResponseTypes.SHORT_RESPONSE
+        else:
+            return "No response type detected"
+        
+    async def generate_feedback(self, response_text):           
+        response_type = self.detect_response_type(response_text)
 
-    async def generate_feedback(self):
-        feedback_results = {}
-        for user_id, info in self.tracking.items():
-            text_path = info["ocr_text_file"]
-            try:
-                with open(text_path, "r", encoding="utf-8") as f:
-                    full_prompt = f.read().strip()
-                    
-                
-                response_type = info.get("response_type").lower()
-                
-                if response_type == "short response":
-                    result = await Runner.run(short_response_agent, full_prompt)
-                elif response_type == "long response":
-                    result = await Runner.run(long_response_agent, full_prompt)
-                else:
-                    raise ValueError(f"Unknown response type: {response_type}")
-                
-                try:
-                    response = json.loads(result.final_output)
-                except json.JSONDecodeError as e:
-                    print(f"Raw response: {result.final_output}")
-                    raise ValueError(f"Invalid JSON format in response for Student {user_id}")
+        if response_type == ResponseTypes.SHORT_RESPONSE:
+            result = await Runner.run(short_response_agent, response_text)
+        elif response_type == ResponseTypes.LONG_RESPONSE:
+            result = await Runner.run(long_response_agent, response_text)
+        else:
+            raise ValueError(f"Unsupported response type: {response_type}")
+        
+        response = json.loads(result.final_output)
 
-                # Store comment and submission_id for later use
-                feedback_results[user_id] = {
-                    "submission_id": info["submission_id"],
-                    "response_type": response["response_type"],
-                    "subject": response["subject"],
-                    "comment": response["feedback_html"],
-                    "question": response["question"]
-                }
-
-            except Exception as e:
-                print(f"Error generating feedback for Student {user_id}: {e}")
-
-        return feedback_results
+        return response

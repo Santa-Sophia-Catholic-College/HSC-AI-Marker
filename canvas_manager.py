@@ -19,19 +19,16 @@ class CanvasManager:
     def get_latest_submission(history):
         return max(history, key=lambda s: s.get("submitted_at") or "")
 
-    def submit_grade_and_comment(self, user_id, comment_text):
-        try:
-            submission = self.assignment.get_submission(user_id, include=["submission_history"])
-            latest_submission = self.get_latest_submission(submission.submission_history)
-            submission_edit_data = {
-                "posted_grade": "complete"
-            }
-            comment_edit_data = {
-                "text_comment": comment_text,
-                "attempt": latest_submission.get("attempt")
-            }
+    def submit_grade_and_comment(self, user_id, comment_text, grade="complete"):
+        submission = self.assignment.get_submission(user_id, include=["submission_history"])
+        latest_submission = self.get_latest_submission(submission.submission_history)
+        submission_edit_data = {
+            "posted_grade": grade
+        }
+        comment_edit_data = {
+            "text_comment": comment_text,
+            "attempt": latest_submission.get("attempt")
+        }
 
-            submission.edit(submission=submission_edit_data, comment=comment_edit_data)
-            print(f"✓ Comment and grade posted for user {user_id}")
-        except Exception as e:
-            print(f"✗ Failed to submit feedback for user {user_id}: {e}")
+        submission.edit(submission=submission_edit_data, comment=comment_edit_data)
+

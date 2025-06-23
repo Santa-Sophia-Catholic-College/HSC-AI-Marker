@@ -4,17 +4,61 @@ import gspread
 import datetime
 from canvas_manager import CanvasManager
 from ocr_processor import OCRProcessor
-from feedback_generator import FeedbackGenerator
+from feedback_generator import FeedbackGenerator, UnknownResponseTypeError
 from config import API_URL, COURSE_ID, ASSIGNMENT_ID, DOWNLOAD_DIR
+from urllib.request import urlretrieve
+import logging
+import hashlib
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
 
 def load_token(token_path):
     with open(os.path.expanduser(token_path), "r") as f:
         return f.read().strip()
 
+def check_submission(submission):
+    user_id = str(submission.user_id)
+    history = submission.submission_history or []
+    
+    # if user_id == '126839':
+    #     breakpoint()
+
+    if not history:
+        return False
+
+    latest = CanvasManager.get_latest_submission(history)
+    submitted_at_str = latest.get("submitted_at")
+    grade_str = latest.get("grade")
+    graded_at_str = submission.graded_at
+
+    if not submitted_at_str:
+        return False
+    
+    if grade_str in ["complete", "incomplete", "excused"]:
+        return False
+
+    return True
+
+def download_pdf(attachment, student_id):
+    # Create a unique filename using md5 hash of url + original filename
+    url = attachment["url"]
+    original_filename = attachment['filename']
+    hash_input = (url + original_filename).encode('utf-8')
+    md5_hash = hashlib.md5(hash_input).hexdigest()
+    ext = os.path.splitext(original_filename)[1]
+    filename = f"{md5_hash}{ext}"
+    filepath = os.path.join(DOWNLOAD_DIR, filename)
+    logging.info(f"Downloading: {filename}")
+    urlretrieve(url, filepath)
+    return filepath
+
 
 def main():
-    print("Loading tokens...")
+    logging.info("Initializing components...")
     canvas_token = os.getenv('CANVAS_API_TOKEN')
     ocr_token = os.getenv('HANDWRITING_OCR_TOKEN')
 
@@ -23,8 +67,6 @@ def main():
     if not ocr_token:
         raise ValueError("HANDWRITING_OCR_TOKEN environment variable is not set")
 
-    print("Initializing components...")
-    
     gc = gspread.service_account(filename='service_account.json')
     worksheet = gc.open_by_key('1qxvkMRUbK0fQ8Kdp4Z7lwP36G8qzXMT7Ul6eRI-BAzU').worksheet('Data')
 
@@ -39,41 +81,85 @@ def main():
         token=ocr_token,
         download_dir=DOWNLOAD_DIR
     )
-
-    print("Checking for unmarked or resubmitted submissions...")
-    submissions = canvas_mgr.get_submissions()
-    for submission in submissions:
-        #print(f"Processing submission for Student {submission.user_id}...")
-        ocr_processor.process_submission(submission)
-
-    print("OCR processing complete. Generating feedback...\n")
-    feedback_gen = FeedbackGenerator(ocr_processor.tracking)
     
-    # Generate feedback and capture results
-    feedback_results = asyncio.run(feedback_gen.generate_feedback())
+    feedback_gen = FeedbackGenerator()
 
-    # Submit grade and comment via Canvas
-    for user_id, feedback in feedback_results.items():
+    logging.info("Checking for unmarked or resubmitted submissions...")
+    submissions = canvas_mgr.get_submissions()
+    unmarked_submissions = [s for s in submissions if check_submission(s)]
+
+    # Submit grade and comment via Canvas, and process OCR per user_id
+    for submission in unmarked_submissions:
         try:
-            canvas_mgr.submit_grade_and_comment(
-                user_id=user_id,
-                comment_text=feedback["comment"]
-            )
+            canvas_user_id = str(submission.user_id)
+            submissions_history = submission.submission_history or []
+            latest_submission = CanvasManager.get_latest_submission(submissions_history)
+            latest_attachment = latest_submission.get("attachments", [{}])[0]
             
-            user_profile = canvas_mgr.get_user_profile(user_id)
-            sis_user_id = user_profile.get("sis_user_id", "Unknown")
-            name = user_profile.get("name", "Unknown")
+            if not latest_attachment or latest_attachment.get("content-type") != "application/pdf":
+                logging.warning(f"Skipping Student {canvas_user_id} - No valid PDF attachment found.")
+                continue
+            
+            # downloading the PDF file
+            pdf_path = download_pdf(latest_attachment, canvas_user_id)
+            logging.info(f"Downloaded PDF for Student {canvas_user_id}: {pdf_path}")
+            
+            # Perform OCR on the downloaded PDF
+            ocr_txt = ocr_processor.perform_ocr(pdf_path)
+            logging.info(f"OCR processed for Student {canvas_user_id}.")
+            
+            # submit to feedback generator
+            logging.info(f"Generating feedback for Student {canvas_user_id}.")
+            feedback_response = asyncio.run(feedback_gen.generate_feedback(ocr_txt))
+            
+            # submit the feedback to canvas and mark the submission
+            canvas_mgr.submit_grade_and_comment(
+                user_id=canvas_user_id,
+                comment_text=feedback_response["feedback_html"],
+            )
+            print(f"Submitted grade and comment for Student {canvas_user_id}.")
 
-            worksheet.append_row([
-                datetime.datetime.now().isoformat(),
-                sis_user_id,
-                name,
-                feedback["subject"],
-                feedback["response_type"],
-                feedback["question"],
-            ])
+            try:
+                user_profile = canvas_mgr.get_user_profile(canvas_user_id)
+                sis_user_id = user_profile.get("sis_user_id", "Unknown")
+                name = user_profile.get("name", "Unknown")
+
+                worksheet.append_row([
+                    datetime.datetime.now().isoformat(),
+                    sis_user_id,
+                    name,
+                    feedback_response["subject"],
+                    feedback_response["response_type"],
+                    feedback_response["question"],
+                    feedback_response["teacher_email"],
+                ])
+            except Exception as e:
+                logging.warning(f"Error logging feedback for Student {canvas_user_id}: {e}")
         except Exception as e:
-            print(f"Error submitting grade for Student {user_id}: {e}")
+            if isinstance(e, UnknownResponseTypeError):
+                try:
+                    canvas_mgr.submit_grade_and_comment(
+                        user_id=canvas_user_id,
+                        comment_text="We were unable to determine if this response was a short or long response. Please ensure that you have used the template for your response. If you are unsure, please ask your teacher. Once you have done this, please resubmit your response.",
+                        grade="incomplete"
+                    )
+                    logging.info(f"Submitted incomplete grade for Student {canvas_user_id} with unknown response type.")
+                except Exception as e:
+                    logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
+
+                logging.warning(f"Unknown response type for Student {canvas_user_id}. Skipping...")
+            else:
+                try:
+                    canvas_mgr.submit_grade_and_comment(
+                        user_id=canvas_user_id,
+                        comment_text="We encountered an error while processing your submission. Please see IT for assistance. <br> Error: " + str(e),
+                        grade="incomplete"
+                    )
+                    logging.info(f"Submitted incomplete grade for Student {canvas_user_id} with unknown response type.")
+                except Exception as e:
+                    logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
+
+                logging.error(f"Error submitting grade for Student {canvas_user_id}: {e}")
 
 
 
