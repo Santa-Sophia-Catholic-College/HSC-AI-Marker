@@ -90,6 +90,10 @@ def main():
 
     # Submit grade and comment via Canvas, and process OCR per user_id
     for submission in unmarked_submissions:
+        # if not submission.user_id == 32280:
+        #     logging.info(f"Skipping Student {submission.user_id} - Not the target student.")
+        #     continue
+        
         try:
             canvas_user_id = str(submission.user_id)
             submissions_history = submission.submission_history or []
