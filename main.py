@@ -31,14 +31,11 @@ def check_submission(submission):
         return False
 
     latest = CanvasManager.get_latest_submission(history)
-    submitted_at_str = latest.get("submitted_at")
-    grade_str = latest.get("grade")
-    graded_at_str = submission.graded_at
-
-    if not submitted_at_str:
-        return False
+    submission_workflow_state = latest.get("workflow_state")
     
-    if grade_str in ["complete", "incomplete", "excused"]:
+    # skip graded submissions
+    if submission_workflow_state == "graded":
+        logging.info(f"Skipping Student {user_id} - Submission state: {submission_workflow_state}")
         return False
 
     return True
