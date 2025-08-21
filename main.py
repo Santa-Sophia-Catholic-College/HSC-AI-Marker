@@ -2,6 +2,8 @@ import os
 import asyncio
 import gspread
 import datetime
+
+from requests import HTTPError
 from canvas_manager import CanvasManager
 from ocr_processor import OCRProcessor
 from feedback_generator import FeedbackGenerator, UnknownResponseTypeError
@@ -150,6 +152,20 @@ def main():
                     logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
 
                 logging.warning(f"Unknown response type for Student {canvas_user_id}. Skipping...")
+            elif isinstance(e, HTTPError):
+                # check if error is 422
+                if e.response.status_code == 422:
+                    try:
+                        canvas_mgr.submit_grade_and_comment(
+                            user_id=canvas_user_id,
+                            comment_text="There was an issue processing your submission. Please check if your submission file size is less than 20MB. If it is larger, please reduce the file size and resubmit.",
+                            grade="incomplete"
+                        )
+                        logging.info(f"Submitted incomplete grade for Student {canvas_user_id} due to HTTP error.")
+                    except Exception as e:
+                        logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
+                else:
+                    logging.error(f"HTTP error for Student {canvas_user_id}: {e}")
             else:
                 try:
                     canvas_mgr.submit_grade_and_comment(
