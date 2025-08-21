@@ -164,6 +164,16 @@ def main():
                         logging.info(f"Submitted incomplete grade for Student {canvas_user_id} due to HTTP error.")
                     except Exception as e:
                         logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
+                elif e.response.status_code == 500:
+                    try:
+                        canvas_mgr.submit_grade_and_comment(
+                            user_id=canvas_user_id,
+                            comment_text=f"There was an internal server error while processing your submission. Please try again later. Error: {e.response.text}",
+                            grade="incomplete"
+                        )
+                        logging.info(f"Submitted incomplete grade for Student {canvas_user_id} due to server error.")
+                    except Exception as e:
+                        logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e.response.text}")
                 else:
                     logging.error(f"HTTP error for Student {canvas_user_id}: {e}")
             else:
