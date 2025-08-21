@@ -24,7 +24,7 @@ def check_submission(submission):
     user_id = str(submission.user_id)
     history = submission.submission_history or []
     
-    # if user_id == '126839':
+    # if user_id == '35378':
     #     breakpoint()
 
     if not history:
@@ -32,10 +32,11 @@ def check_submission(submission):
 
     latest = CanvasManager.get_latest_submission(history)
     submission_workflow_state = latest.get("workflow_state")
+    submission_grade = latest.get("grade")
     
     # skip graded submissions
-    if submission_workflow_state == "graded":
-        logging.info(f"Skipping Student {user_id} - Submission state: {submission_workflow_state}")
+    if submission_workflow_state == "graded" and submission_grade in ["complete", "incomplete", "excused"]:
+        logging.info(f"Skipping Student {user_id} - Submission state: {submission_workflow_state} or Grade: {submission_grade}")
         return False
 
     return True
