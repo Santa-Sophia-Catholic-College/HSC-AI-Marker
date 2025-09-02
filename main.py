@@ -36,7 +36,12 @@ def check_submission(submission):
     submission_workflow_state = latest.get("workflow_state")
     submission_grade = latest.get("grade")
     
-    # skip graded submissions
+    # skip unsubmitted
+    if submission_workflow_state == "unsubmitted":
+        logging.info(f"Skipping Student {user_id} - Submission state: {submission_workflow_state}")
+        return False
+    
+    # skip graded and submissions.
     if submission_workflow_state == "graded" and submission_grade in ["complete", "incomplete", "excused"]:
         logging.info(f"Skipping Student {user_id} - Submission state: {submission_workflow_state} or Grade: {submission_grade}")
         return False
@@ -102,6 +107,15 @@ def main():
             
             if not latest_attachment or latest_attachment.get("content-type") != "application/pdf":
                 logging.warning(f"Skipping Student {canvas_user_id} - No valid PDF attachment found.")
+                try:
+                    canvas_mgr.submit_grade_and_comment(
+                        user_id=canvas_user_id,
+                        comment_text="We were unable to find a valid PDF attachment in your submission. Please ensure you have uploaded a PDF file. If you are unsure, please ask your teacher. Once you have done this, please resubmit your response.",
+                        grade="incomplete"
+                    )
+                    logging.info(f"Submitted incomplete grade for Student {canvas_user_id} due to missing PDF.")
+                except Exception as e:
+                    logging.error(f"Error submitting incomplete grade for Student {canvas_user_id}: {e}")
                 continue
             
             # downloading the PDF file
